@@ -6,6 +6,7 @@ var yaml = require('js-yaml');
 var _ = require('lodash');
 var chalk = require('chalk');
 var GitHub = require('github');
+var async = require('async');
 
 module.exports = generators.Base.extend({
 
@@ -27,12 +28,25 @@ module.exports = generators.Base.extend({
         });
     },
 
+    _moduleInstall: function (modName, callback) {
+        var modPath = path.join(process.cwd(), '..', 'wok-module-' + modName);
+
+        this.conflicter.force = true;
+        this.remoteDir(modPath, function (err, remote, files) {
+            var install = require(path.join(remote.cachePath, 'index.js'))(remote, this);
+            install.run();
+            callback();
+        }.bind(this));
+
+    },
+
     // The name `constructor` is important here
     constructor: function () {
         // Calling the super constructor is important so our generator is correctly set up
         generators.Base.apply(this, arguments);
 
         this.answers = {};
+        this._modules = ['jade'];
 
     },
 
@@ -183,6 +197,11 @@ module.exports = generators.Base.extend({
         //generate an empty readme file
         this.wokRepo.dest.write('README.md', '#' + this.answers.projectDescription + "\n\n");
 
+    },
+
+    doModules: function () {
+        var done = this.async();
+        async.eachSeries(this._modules, this._moduleInstall.bind(this), done);
     },
 
     install: function () {
