@@ -7,8 +7,10 @@ var _ = require('lodash');
 var chalk = require('chalk');
 var GitHub = require('github');
 var async = require('async');
+var common = require('../common.js');
 
-module.exports = generators.Base.extend({
+
+var WokGenerator = generators.Base.extend({
 
     _logHeading: function (msg) {
         this.log("\n");
@@ -28,16 +30,53 @@ module.exports = generators.Base.extend({
         });
     },
 
+
+    _getFile: function (filepath) {
+        return _.find(this.files, {pathFrom: filepath});
+    },
+
+    _updateFile: function (filepath, props) {
+        var fileObj = this._getFile(filepath);
+        if (_.isPlainObject(fileObj)) {
+            return _.extend(fileObj, props);
+        }
+        return false;
+    },
+
+    _deleteFile: function (filepath) {
+        var fileIndex = _.findIndex(this.files, {pathFrom: filepath}),
+            fileItem = this.files[fileIndex];
+        if (fileIndex) {
+            this.files.splice(fileIndex, 1);
+            //also remove existing files...
+            this.fs.delete(fileItem.pathTo);
+            return true;
+        }
+        return false;
+    },
+
+    _addFile: function (filepath, remote) {
+        if (!_.find(this.files, {pathFrom: filepath})) {
+            this.files.push({
+                pathFrom: filepath,
+                remote: remote,
+                pathTo: filepath,
+                content: null
+            });
+        }
+    },
+
     _moduleInstall: function (modName, callback) {
-        var modPath = path.join(process.cwd(), '..', 'wok-module-' + modName);
+        //common.moduleInstall.call(this, 'wok-module-' + modName, callback);
+        var modPath = path.join(process.cwd(), '..', modName || this.moduleName);
 
         this.conflicter.force = true;
         this.remoteDir(modPath, function (err, remote, files) {
-            var install = require(path.join(remote.cachePath, 'index.js'))(remote, this);
-            install.run();
+            //this.remote('fevrcoding', modName, 'master', function (err, remote, files) {
+            var install = require(path.join(remote.cachePath, 'index.js'))(remote, files, this);
+            install.onInstall();
             callback();
         }.bind(this));
-
     },
 
     // The name `constructor` is important here
@@ -46,7 +85,9 @@ module.exports = generators.Base.extend({
         generators.Base.apply(this, arguments);
 
         this.answers = {};
-        this._modules = ['jade'];
+        this._modules = [];
+        this.files = [];
+        this.installProcedure = true;
 
     },
 
@@ -112,11 +153,51 @@ module.exports = generators.Base.extend({
         }.bind(this));
     },
 
+    askForEngines: function () {
+        var done = this.async();
+        var _utils = this._;
+
+
+        this._logHeading('Prerocessors setup...');
+
+        var prompts = [{
+            type: 'list',
+            name: 'views',
+            message: 'View rendering engine',
+            choices: [{
+                name: 'EJS',
+                value: 'wok-contrib-ejs'
+            }, {
+                name: 'Jade',
+                value: 'wok-contrib-jade'
+            }],
+            'default': 'wok-contrib-ejs'
+
+        }, {
+            type: 'list',
+            name: 'stylesheets',
+            message: 'Stylesheets preprocessor',
+            choices: [{
+                name: 'Compass',
+                value: 'wok-contrib-compass'
+            }, {
+                name: 'Sass',
+                value: 'wok-contrib-sass'
+            }],
+            'default': 'wok-contrib-compass'
+        }];
+
+        this.prompt(prompts, function (answers) {
+            this.answers.engines = answers;
+            done();
+        }.bind(this));
+    },
+
     fetchRepo: function () {
 
         var done = this.async();
 
-        this.remote('fevrcoding', 'wok', 'master', function (err, remote, files) {
+        this.remote('fevrcoding', 'wok', 'feature/gruntfile/modularize', function (err, remote, files) {
             if (err) {
                 //TODO manage error
                 this.log.error('Unable to download latest version of https://github.com/fevrcoding/wok');
@@ -124,7 +205,10 @@ module.exports = generators.Base.extend({
             }
 
             this.wokRepo = remote;
-            this.wokFiles = files;
+
+            _.each(files, function (el) {
+                this._addFile(el, remote);
+            }, this);
 
             done();
         }.bind(this));
@@ -132,76 +216,96 @@ module.exports = generators.Base.extend({
         //this._listPlugins();
     },
 
-    copyFiles: function () {
-
-        var remote = this.wokRepo;
-        var files = this.wokFiles;
-
-        //copy main application folder
-        remote.directory('application', 'application');
-
-        //build folder
-        remote.dest.mkdir('build');
-
-        //copy unchanged configuration files
-        ['hosts.yml', 'properties.yml'].forEach(function (filename) {
-            var fullpath = path.join('build', 'grunt-config', filename);
-            remote.copy(fullpath, fullpath);
-        });
-
-
-        //copy unchanged files
-        ['build/Gruntfile.js', 'build/compass.rb', 'bower.json', 'Gemfile'].forEach(function (filepath) {
-            remote.copy(filepath, filepath);
-        });
-
-        //copy dot files
-        files.filter(function (path) {
-            return path.indexOf('.') === 0 && path !== '.bowerrc';
-        }).forEach(function (el) {
-            remote.copy(el, el);
-        });
-    },
-
     package: function () {
 
-        var pkg = this.wokRepo.src.readJSON('package.json');
+        var pkgFile = this._getFile('package.json');
+        var pkg = this.wokRepo.src.readJSON(pkgFile.pathFrom);
 
         pkg = _.extend(pkg || {}, {
             version: '0.0.1',
             contributors: []
         }, this.answers.projectData);
 
-        this.wokRepo.dest.write('package.json', JSON.stringify(pkg, null, 4));
+        //update package content
+        pkgFile.content = JSON.stringify(pkg, null, 4);
+
+
+        //this.wokRepo.dest.write('package.json', JSON.stringify(pkg, null, 4));
 
         return pkg;
     },
 
     config: function (remote) {
+        var cfgFile = this._getFile('build/grunt-config/paths.yml');
         var remote = this.wokRepo;
-        var pathCfg = yaml.safeLoad(remote.src.read('build/grunt-config/paths.yml'));
+        var files = this.files;
+        var pathCfg = yaml.safeLoad(remote.src.read(cfgFile.pathFrom));
         var defaultPublic = pathCfg.www;
 
 
         pathCfg = _.extend(pathCfg, this.answers.folders);
 
-        remote.dest.write('build/grunt-config/paths.yml', yaml.safeDump(pathCfg));
+        if (defaultPublic === pathCfg.www) {
+            return pathCfg;
+        }
+
+        //remote.dest.write('build/grunt-config/paths.yml', yaml.safeDump(pathCfg));
         //public www data to destination public folder
-        remote.directory(defaultPublic, pathCfg.www);
+        //remote.directory(defaultPublic, pathCfg.www);
         //write .bowerrc
-        remote.dest.write('.bowerrc', JSON.stringify({directory: pathCfg.www + '/vendor'}, null, 4));
+        //remote.dest.write('.bowerrc', JSON.stringify({directory: pathCfg.www + '/vendor'}, null, 4));
+
+        cfgFile.content = yaml.safeDump(pathCfg);
+
+        //alter public path
+        files.forEach(function (fileItem, i) {
+            var regexp = new RegExp('^' + defaultPublic);
+            if (regexp.test(fileItem.pathFrom)) {
+                files[i].pathTo = fileItem.pathFrom.replace(regexp, pathCfg.www);
+            }
+        });
+
+        this._updateFile('.bowerrc', {
+            content: JSON.stringify({directory: pathCfg.www + '/vendor'}, null, 4)
+        });
+
         return pathCfg;
     },
 
     readme: function () {
         //generate an empty readme file
-        this.wokRepo.dest.write('README.md', '#' + this.answers.projectDescription + "\n\n");
+        //this.wokRepo.dest.write('README.md', '#' + this.answers.projectDescription + "\n\n");
+        this._updateFile('README.md', {
+            content: ('#' + this.answers.projectData.description + "\n\n")
+        });
+
+    },
+
+    engines: function () {
+
+        var properties = this._getFile('build/grunt-config/properties.yml');
+        var propContent = yaml.safeLoad(properties.content || this.wokRepo.src.read(properties.pathFrom));
+
+        //properties
+        _.forOwn(this.answers.engines, function(value, key) {
+            propContent.engines[key] = value.replace(/^wok-(module|contrib)-/, '');
+        });
+
+        properties.content = yaml.safeDump(propContent);
+
+        //install engines
+
 
     },
 
     doModules: function () {
         var done = this.async();
-        async.eachSeries(this._modules, this._moduleInstall.bind(this), done);
+        //async.eachSeries(_.values(this.answers.engines), this._moduleInstall.bind(this), done);
+        done();
+    },
+
+    copyFiles: function () {
+        common.copyFiles.apply(this, arguments);
     },
 
     install: function () {
@@ -225,3 +329,5 @@ module.exports = generators.Base.extend({
         }));
     }
 });
+
+module.exports = WokGenerator;
