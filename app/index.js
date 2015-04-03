@@ -66,19 +66,6 @@ var WokGenerator = generators.Base.extend({
         }
     },
 
-    _moduleInstall: function (modName, callback) {
-        //common.moduleInstall.call(this, 'wok-module-' + modName, callback);
-        var modPath = path.join(process.cwd(), '..', modName || this.moduleName);
-
-        this.conflicter.force = true;
-        this.remoteDir(modPath, function (err, remote, files) {
-            //this.remote('fevrcoding', modName, 'master', function (err, remote, files) {
-            var install = require(path.join(remote.cachePath, 'index.js'))(remote, files, this);
-            install.onInstall();
-            callback();
-        }.bind(this));
-    },
-
     // The name `constructor` is important here
     constructor: function () {
         // Calling the super constructor is important so our generator is correctly set up
@@ -89,6 +76,24 @@ var WokGenerator = generators.Base.extend({
         //this._modules = [];
         //this.installProcedure = true;
 
+    },
+
+    askForVersion: function () {
+        var done = this.async();
+        var _utils = this._;
+
+        this._logHeading('Wok branch to use...');
+
+
+        this.prompt([{
+            type: 'text',
+            name: 'wokbranch',
+            message: 'Wok branch to use',
+            'default': 'master'
+        }], function (answers) {
+            this.answers.wokbranch = answers.wokbranch;
+            done();
+        }.bind(this));
     },
 
     askForProject: function () {
@@ -161,13 +166,13 @@ var WokGenerator = generators.Base.extend({
 
         var prompts = [ {
             type: 'confirm',
-            name: 'viewengine',
+            name: 'useejs',
             message: 'Use default view engine (ejs)',
             'default': true
         }];
 
         this.prompt(prompts, function (answers) {
-            this.answers.useejs = answers.viewengine;
+            this.answers.useejs = answers.useejs;
             done();
         }.bind(this));
     },
@@ -176,7 +181,7 @@ var WokGenerator = generators.Base.extend({
 
         var done = this.async();
 
-        this.remote('fevrcoding', 'wok', 'feature/gruntfile/modularize', function (err, remote, files) {
+        this.remote('fevrcoding', 'wok', this.answers.wokbranch, function (err, remote, files) {
             if (err) {
                 //TODO manage error
                 this.log.error('Unable to download latest version of https://github.com/fevrcoding/wok');
