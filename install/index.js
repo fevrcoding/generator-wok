@@ -32,7 +32,7 @@ var installGenerator = generators.NamedBase.extend({
 
     startup: function () {
           this._logHeading('Searching for module `' + this.moduleName + '`...');
-    },/*
+    },
 
     searchPlugin: function () {
         var done = this.async(),
@@ -52,31 +52,25 @@ var installGenerator = generators.NamedBase.extend({
                 done();
             }
         }.bind(this));
-    },*/
+    },
 
     confirmInstall: function () {
-        var done = this.async();
+        var done = this.async(),
+            _answers = this.answers;
 
-        /*this.prompt([{
+        this.prompt([{
             type: 'confirm',
             name: 'installConfirm',
             message: 'Install module `' + this.moduleName + '` from ' + this.gitRepo.url,
             'default': true
         }], function (answers) {
-            this.answers.installConfirm = answers.installConfirm;
+            _answers.installConfirm = answers.installConfirm;
             done();
-        });*/
-
-        this.answers.installConfirm = true;
-        done();
+        });
     },
 
     moduleInstall: function () {
         common.moduleInstall.apply(this, [this.moduleName]);
-    },
-
-    copyFiles: function () {
-        common.copyFiles.apply(this, arguments);
     }
 });
 

@@ -85,9 +85,9 @@ var WokGenerator = generators.Base.extend({
         generators.Base.apply(this, arguments);
 
         this.answers = {};
-        this._modules = [];
         this.files = [];
-        this.installProcedure = true;
+        //this._modules = [];
+        //this.installProcedure = true;
 
     },
 
@@ -153,42 +153,21 @@ var WokGenerator = generators.Base.extend({
         }.bind(this));
     },
 
-    askForEngines: function () {
+
+    askForViews: function () {
         var done = this.async();
-        var _utils = this._;
 
+        this._logHeading('Views setup...');
 
-        this._logHeading('Prerocessors setup...');
-
-        var prompts = [{
-            type: 'list',
-            name: 'views',
-            message: 'View rendering engine',
-            choices: [{
-                name: 'EJS',
-                value: 'wok-contrib-ejs'
-            }, {
-                name: 'Jade',
-                value: 'wok-contrib-jade'
-            }],
-            'default': 'wok-contrib-ejs'
-
-        }, {
-            type: 'list',
-            name: 'stylesheets',
-            message: 'Stylesheets preprocessor',
-            choices: [{
-                name: 'Compass',
-                value: 'wok-contrib-compass'
-            }, {
-                name: 'Sass',
-                value: 'wok-contrib-sass'
-            }],
-            'default': 'wok-contrib-compass'
+        var prompts = [ {
+            type: 'confirm',
+            name: 'viewengine',
+            message: 'Use default view engine (ejs)',
+            'default': true
         }];
 
         this.prompt(prompts, function (answers) {
-            this.answers.engines = answers;
+            this.answers.useejs = answers.viewengine;
             done();
         }.bind(this));
     },
@@ -226,8 +205,13 @@ var WokGenerator = generators.Base.extend({
             contributors: []
         }, this.answers.projectData);
 
+        if (!this.answers.useejs) {
+            delete pkg.devDependencies['grunt-ejs-render'];
+        }
+
         //update package content
         pkgFile.content = JSON.stringify(pkg, null, 4);
+
 
 
         //this.wokRepo.dest.write('package.json', JSON.stringify(pkg, null, 4));
@@ -272,6 +256,17 @@ var WokGenerator = generators.Base.extend({
         return pathCfg;
     },
 
+
+    ejsRender: function () {
+        if (!this.answers.useejs) {
+            this.files = this.files.filter(function (file) {
+                return file.pathFrom.indexOf('render.js') === -1;
+            }).filter(function (file) {
+                return file.pathFrom.indexOf('application/views/') === -1;
+            });
+        }
+    },
+
     readme: function () {
         //generate an empty readme file
         //this.wokRepo.dest.write('README.md', '#' + this.answers.projectDescription + "\n\n");
@@ -281,29 +276,6 @@ var WokGenerator = generators.Base.extend({
 
     },
 
-    engines: function () {
-
-        var properties = this._getFile('build/grunt-config/properties.yml');
-        var propContent = yaml.safeLoad(properties.content || this.wokRepo.src.read(properties.pathFrom));
-
-        //properties
-        _.forOwn(this.answers.engines, function(value, key) {
-            propContent.engines[key] = value.replace(/^wok-(module|contrib)-/, '');
-        });
-
-        properties.content = yaml.safeDump(propContent);
-
-        //install engines
-
-
-    },
-
-    doModules: function () {
-        var done = this.async();
-        //async.eachSeries(_.values(this.answers.engines), this._moduleInstall.bind(this), done);
-        done();
-    },
-
     copyFiles: function () {
         common.copyFiles.apply(this, arguments);
     },
@@ -311,7 +283,7 @@ var WokGenerator = generators.Base.extend({
     install: function () {
 
         if (!this.options['skip-install']) {
-            this.spawnCommand('bundler', ['install']);
+            //this.spawnCommand('bundler', ['install']);
             this.installDependencies({
                 skipMessage: true
             });
@@ -325,7 +297,7 @@ var WokGenerator = generators.Base.extend({
 
         this.log(template({
             skipInstall: this.options['skip-install'],
-            commands: chalk.yellow.bold(['bower install', 'npm install', 'bundler install'].join(' & '))
+            commands: chalk.yellow.bold(['bower install', 'npm install'].join(' & '))
         }));
     }
 });

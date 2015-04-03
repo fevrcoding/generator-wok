@@ -5,9 +5,9 @@ var _ = require('lodash');
 var chalk = require('chalk');
 
 module.exports = {
-    moduleInstall: function (modName, callback) {
-        var modPath = path.join(process.cwd(), '..', modName || this.moduleName),
-            done = callback || this.async();
+
+    moduleInstall: function (modName) {
+        var done = this.async();
 
         if (_.has(this.answers, 'installConfirm') && this.answers.installConfirm === false) {
             this.log(chalk.yellow('User cancelled'));
@@ -15,12 +15,9 @@ module.exports = {
             return false;
         }
 
-        this.conflicter.force = true;
-        this.remoteDir(modPath, function (err, remote, files) {
-            //this.remote(this.gitRepo.owner.login, this.gitRepo.name, 'master', function (err, remote, files) {
-            var install = require(path.join(remote.cachePath, 'index.js'))(remote, files, this);
-            install.run();
-            done();
+        this.remote(this.gitRepo.owner.login, this.gitRepo.name, 'master', function (err, remote, files) {
+            var mod = require(path.join(remote.cachePath, 'index.js'))(remote, files, this);
+            mod.install(done);
         }.bind(this));
     },
 
